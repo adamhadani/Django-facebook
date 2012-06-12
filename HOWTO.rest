@@ -4,7 +4,9 @@ Django Facebook HOWTO
 
 Last updated June 12th 2012, by Adam Ever-Hadani <adamhadani@gmail.com>
 
-.. contents:: Table of Contents
+Table of Contents
+-----------------
+.. contents::
 
 Tips & Tricks
 --------------
