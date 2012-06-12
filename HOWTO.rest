@@ -4,6 +4,8 @@ Django Facebook HOWTO
 
 Last updated June 12th 2012, by Adam Ever-Hadani <adamhadani@gmail.com>
 
+.. contents:: Table of Contents
+
 Tips & Tricks
 --------------
 * **Facebook Permissions** - To specify custom set of facebook permissions to ask for, use the FACEBOOK_DEFAULT_SCOPE setting, e.g in your settings.py:
