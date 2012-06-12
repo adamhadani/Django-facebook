@@ -13,7 +13,7 @@ Tips & Tricks
 
 Troubleshooting
 ---------------
-* OSError after facebook connect dialog  (Permission denied: '/Library/WebServer/images')
+* OSError after facebook connect dialog  (e.g Permission denied: '/Library/WebServer/images')
     This happens when the framework attempts to save the  users' profile image locally and MEDIA_ROOT is not configured properly in your settings file.
     Make sure MEDIA_ROOT points to a valid existing directory and that it is **R/W-able by the webserver context/user**
 * TemplateDoesNotExist at /accounts/logout/
