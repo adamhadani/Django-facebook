@@ -13,8 +13,8 @@ To specify custom set of facebook permissions to ask for, use the FACEBOOK_DEFAU
 
 Troubleshooting
 ---------------
-* OSError after connect (Permission denied: '/Library/WebServer/images')
-    This happens when the users' profile image is tried to save locally and MEDIA_ROOT is not configured properly in your settings file.
+* OSError after facebook connect dialog  (Permission denied: '/Library/WebServer/images')
+    This happens when the framework attempts to save the  users' profile image locally and MEDIA_ROOT is not configured properly in your settings file.
     Make sure MEDIA_ROOT points to a valid existing directory and that is *R/W-able by the webserver context/user*
 * TemplateDoesNotExist at /accounts/logout/
     This happens when you try to sign out a user by hitting the /accounts/logout/ url without a ?next=<redirect_url> query parameter.
