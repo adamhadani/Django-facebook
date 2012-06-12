@@ -12,6 +12,7 @@ Tips & Tricks
 
     FACEBOOK_DEFAULT_SCOPE = ['email', 'user_events', 'user_likes', 'user_interests', 'read_stream']
 
+  For full reference of available permission strings, See `Here <https://developers.facebook.com/docs/authentication/permissions/>`_.
 
 Troubleshooting
 ---------------
