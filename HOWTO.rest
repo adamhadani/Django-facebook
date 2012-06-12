@@ -23,6 +23,6 @@ Troubleshooting
     By default, Django-facebook expects you to have a template for this at registration/logout.html as the landing page following a logout.
     Either create this (e.g under your /templates subdir) or supply the ?next= parameter (e.g /accounts/logout/?next=/).
     NOTE: The default redirect URLs correspond to the ones used by the django-registration app. There are various default templates
-    floating around the interwebs for this, c.f `This <https://github.com/yourcelf/django-registration-defaults>`
+    floating around the interwebs for this, c.f `This <https://github.com/yourcelf/django-registration-defaults>`_
 
 
