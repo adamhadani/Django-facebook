@@ -6,13 +6,31 @@ Last updated June 12th 2012, by Adam Ever-Hadani <adamhadani@gmail.com>
 
 .. contents:: Table of Contents
 
-Tips & Tricks
---------------
+Settings
+---------
 * **Facebook Permissions** - To specify custom set of facebook permissions to ask for, use the FACEBOOK_DEFAULT_SCOPE setting, e.g in your settings.py:
 
     FACEBOOK_DEFAULT_SCOPE = ['email', 'user_events', 'user_likes', 'user_interests', 'read_stream']
 
   For full reference of available permission strings, See `Here <https://developers.facebook.com/docs/authentication/permissions/>`_.
+  
+* To store the OAuth 2.0 access_token alongside Users' profile:
+	
+	FACEBOOK_STORE_ALL_ACCESS_TOKENS = True
+	
+* To disable the test page (/facebook/connect/):
+
+	FACEBOOK_HIDE_CONNECT_TEST = True
+	
+* To store locally on DB all of a users' friends (or likes):
+
+	FACEBOOK_STORE_FRIENDS = True
+	
+  [ Use FACEBOOK_STORE_LIKES for likes ]
+	
+* For full list of configurable setting parameters look at django_facebook/settings.py. 
+
+
 
 Troubleshooting
 ---------------
