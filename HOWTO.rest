@@ -1,5 +1,5 @@
 ######################################################################
-Django Facebook HOWTO
+Django-facebook HOWTO
 ######################################################################
 
 Last updated June 12th 2012, by Adam Ever-Hadani <adamhadani@gmail.com>
