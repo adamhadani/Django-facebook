@@ -15,7 +15,6 @@ from django_facebook.api import get_facebook_graph, FacebookUserConverter
 from django_facebook.utils import (get_registration_backend, get_form_class,
                                    get_profile_class)
 import urllib2
-from django.core.files import File
 from django.core.files.temp import NamedTemporaryFile
 from django.core.files.uploadedfile import InMemoryUploadedFile
 
@@ -49,7 +48,7 @@ def connect_user(request, access_token=None, facebook_graph=None):
     facebook_data = facebook.facebook_profile_data()
     force_registration = request.REQUEST.get('force_registration') or\
         request.REQUEST.get('force_registration_hard')
-        
+
     connect_facebook = bool(int(request.REQUEST.get('connect_facebook', 0)))
 
     logger.debug('force registration is set to %s', force_registration)
@@ -68,7 +67,6 @@ def connect_user(request, access_token=None, facebook_graph=None):
         auth_user = authenticate(facebook_id=facebook_data['id'], **kwargs)
         if auth_user and not force_registration:
             action = CONNECT_ACTIONS.LOGIN
-            
 
             # Has the user registered without Facebook, using the verified FB
             # email address?
@@ -84,11 +82,11 @@ def connect_user(request, access_token=None, facebook_graph=None):
             # the old profile
             user = _register_user(request, facebook,
                                   remove_old_connections=force_registration)
-            
+
     _update_likes_and_friends(request, user, facebook)
 
     _update_access_token(user, graph)
-    
+
     return action, user
 
 
@@ -113,6 +111,13 @@ def _connect_user(request, facebook, overwrite=True):
         raise ValueError(
             'Facebook needs to be authenticated for connect flows')
 
+    data = facebook.facebook_profile_data()
+    facebook_id = data['id']
+    
+    #see if we already have profiles connected to this facebook account
+    old_connections = _get_old_connections(facebook_id, request.user.id)[:20]
+    if old_connections and not request.REQUEST.get('confirm_connect'):
+        raise facebook_exceptions.AlreadyConnectedError(list(old_connections))
     user = _update_user(request.user, facebook, overwrite=overwrite)
 
     return user
@@ -137,7 +142,8 @@ def _update_likes_and_friends(request, user, facebook):
              }
         })
         transaction.savepoint_rollback(sid)
-       
+
+
 def _update_access_token(user, graph):
     '''
     Conditionally updates the access token in the database
@@ -151,8 +157,7 @@ def _update_access_token(user, graph):
             if graph.access_token != profile.access_token:
                 profile.access_token = graph.access_token
                 profile.save()
-        
-        
+
 
 def _register_user(request, facebook, profile_callback=None,
                    remove_old_connections=False):
@@ -225,10 +230,10 @@ def _register_user(request, facebook, profile_callback=None,
     return new_user
 
 
-def _remove_old_connections(facebook_id, current_user_id=None):
+def _get_old_connections(facebook_id, current_user_id=None):
     '''
-    Removes the facebook id for profiles with the specified facebook id
-    which arent the current user id
+    Gets other accounts connected to this facebook id, which are not
+    attached to the current user
     '''
     profile_class = get_profile_class()
     other_facebook_accounts = profile_class.objects.filter(
@@ -236,6 +241,15 @@ def _remove_old_connections(facebook_id, current_user_id=None):
     if current_user_id:
         other_facebook_accounts = other_facebook_accounts.exclude(
             user__id=current_user_id)
+    return other_facebook_accounts
+
+
+def _remove_old_connections(facebook_id, current_user_id=None):
+    '''
+    Removes the facebook id for profiles with the specified facebook id
+    which arent the current user id
+    '''
+    other_facebook_accounts = _get_old_connections(facebook_id, current_user_id)
     other_facebook_accounts.update(facebook_id=None)
 
 
@@ -298,10 +312,11 @@ def _update_user(user, facebook, overwrite=True):
             profile.raw_data = serialized_fb_data
             profile_dirty = True
 
-
     image_url = facebook_data['image']
-    if hasattr(profile, 'image') and not profile.image:
-        profile_dirty = _update_image(profile, image_url)
+    #update the image if we are allowed and have to
+    if facebook_settings.FACEBOOK_STORE_LOCAL_IMAGE:
+        if hasattr(profile, 'image') and not profile.image:
+            profile_dirty = _update_image(profile, image_url)
 
     #save both models if they changed
     if user_dirty:
@@ -313,6 +328,7 @@ def _update_user(user, facebook, overwrite=True):
         profile=profile, facebook_data=facebook_data)
 
     return user
+
 
 def _update_image(profile, image_url):
     '''
@@ -332,10 +348,12 @@ def _update_image(profile, image_url):
         file=image_temp, name=image_name, field_name='image', 
         content_type=content_type, size=image_size, charset=None
     )
+    image_file.seek(0)
     profile.image.save(image_name, image_file)
     image_temp.flush()
     profile_dirty = True
     return profile_dirty
+
 
 def update_connection(request, graph):
     '''

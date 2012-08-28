@@ -21,6 +21,7 @@ from django_facebook.decorators import (facebook_required,
                                         facebook_required_lazy)
 from open_facebook.utils import send_warning
 from open_facebook.exceptions import OpenFacebookException
+from django.shortcuts import redirect
 
 
 logger = logging.getLogger(__name__)
@@ -110,6 +111,11 @@ def connect(request):
                         facebook_settings.FACEBOOK_REGISTRATION_TEMPLATE,
                         context_instance=context,
                     )
+                except facebook_exceptions.AlreadyConnectedError, e:
+                    user_ids = [u.id for u in e.users]
+                    ids_string = ','.join(map(str, user_ids))
+                    return next_redirect(request, next_key=['error_next', 'next'],
+                        additional_params=dict(already_connected=ids_string))
 
                 if action is CONNECT_ACTIONS.CONNECT:
                     #connect means an existing account was attached to facebook
@@ -118,6 +124,9 @@ def connect(request):
                 elif action is CONNECT_ACTIONS.REGISTER:
                     #hook for tying in specific post registration functionality
                     response = backend.post_registration_redirect(request, user)
+                    #compatability for django registration backends which return tuples instead of a response
+                    #alternatively we could wrap django registration backends, but that would be hard to understand
+                    response = response if isinstance(response, HttpResponse) else redirect(response)
                     return response
         else:
             if 'attempt' in request.GET:
@@ -135,6 +144,20 @@ def connect(request):
         raise Http404
 
     return render_to_response('django_facebook/connect.html', context)
+
+
+def disconnect(request):
+    '''
+    Removes Facebook from the users profile
+    And redirects to the specified next page
+    '''
+    if request.method == 'POST':
+        messages.info(request, _("You have disconnected your Facebook profile."))
+        profile = request.user.get_profile()
+        profile.disconnect_facebook()
+        profile.save()
+    response = next_redirect(request)
+    return response
 
 
 def connect_async_ajax(request):
