@@ -1,22 +1,18 @@
-from django_facebook import settings as facebook_settings
-from django.core.urlresolvers import reverse
-from django_facebook import model_managers
 from django.conf import settings
-from django.db import models
-import os
-import datetime
 from django.contrib.contenttypes import generic
 from django.contrib.contenttypes.models import ContentType
-import logging
-from open_facebook.utils import json, camel_to_underscore
+from django.core.urlresolvers import reverse
+from django.db import models
 from django.db.models.base import ModelBase
-import sys
+from django_facebook import model_managers, settings as facebook_settings
+from open_facebook.utils import json, camel_to_underscore
+import datetime
+import logging
+import os
 logger = logging.getLogger(__name__)
 
 
 PROFILE_IMAGE_PATH = os.path.join('images', 'facebook_profiles/%Y/%m/%d')
-
-
 
 
 class BaseFacebookProfileModel(models.Model):
@@ -34,8 +30,10 @@ class BaseFacebookProfileModel(models.Model):
     website_url = models.TextField(blank=True, null=True)
     blog_url = models.TextField(blank=True, null=True)
     date_of_birth = models.DateField(blank=True, null=True)
-    gender = models.CharField(max_length=1, choices=(('m', 'Male'), ('f', 'Female')), blank=True, null=True)
+    gender = models.CharField(max_length=1, choices=(
+        ('m', 'Male'), ('f', 'Female')), blank=True, null=True)
     raw_data = models.TextField(blank=True, null=True)
+    facebook_open_graph = models.BooleanField(default=True, help_text='Determines if this user want to share via open graph')
 
     def __unicode__(self):
         return self.user.__unicode__()
@@ -58,11 +56,11 @@ class BaseFacebookProfileModel(models.Model):
         from django_facebook.utils import next_redirect
         default_url = reverse('facebook_connect')
         response = next_redirect(request, default=default_url,
-                                 next_key='register_next')
+                                 next_key=['register_next', 'next'])
         response.set_cookie('fresh_registration', self.user_id)
 
         return response
-    
+
     def disconnect_facebook(self):
         self.access_token = None
         self.facebook_id = None
@@ -80,6 +78,7 @@ class BaseFacebookProfileModel(models.Model):
 
         The token can be extended multiple times, supposedly on every visit
         '''
+        logger.info('extending access token for user %s', self.user)
         results = None
         if facebook_settings.FACEBOOK_CELERY_TOKEN_EXTEND:
             from django_facebook import tasks
@@ -91,9 +90,23 @@ class BaseFacebookProfileModel(models.Model):
     def _extend_access_token(self, access_token):
         from open_facebook.api import FacebookAuthorization
         results = FacebookAuthorization.extend_access_token(access_token)
-        access_token, expires = results['access_token'], results['expires']
-        self.access_token = access_token
-        self.save()
+        access_token = results['access_token']
+        old_token = self.access_token
+        token_changed = access_token != old_token
+        message = 'a new' if token_changed else 'the same'
+        log_format = 'Facebook provided %s token, which expires at %s'
+        expires_delta = datetime.timedelta(days=60)
+        logger.info(log_format, message, expires_delta)
+        if token_changed:
+            logger.info('Saving the new access token')
+            self.access_token = access_token
+            self.save()
+
+        from django_facebook.signals import facebook_token_extend_finished
+        facebook_token_extend_finished.send(sender=self, profile=self,
+                                            token_changed=token_changed, old_token=old_token
+                                            )
+
         return results
 
     def get_offline_graph(self):
@@ -112,14 +125,14 @@ class FacebookProfileModel(BaseFacebookProfileModel):
     '''
     the image field really destroys the subclassability of an abstract model
     you always need to customize the upload settings and storage settings
-    
+
     thats why we stick it in a separate class
-    
+
     override the BaseFacebookProfile if you want to change the image
     '''
     image = models.ImageField(blank=True, null=True,
-        upload_to=PROFILE_IMAGE_PATH, max_length=255)
-    
+                              upload_to=PROFILE_IMAGE_PATH, max_length=255)
+
     class Meta:
         abstract = True
 
@@ -133,13 +146,14 @@ class FacebookUser(models.Model):
     user_id = models.IntegerField()
     facebook_id = models.BigIntegerField()
     name = models.TextField(blank=True, null=True)
-    gender = models.CharField(choices=(('F', 'female'), ('M', 'male')), blank=True, null=True, max_length=1)
+    gender = models.CharField(choices=(
+        ('F', 'female'), ('M', 'male')), blank=True, null=True, max_length=1)
 
     objects = model_managers.FacebookUserManager()
 
     class Meta:
         unique_together = ['user_id', 'facebook_id']
-        
+
     def __unicode__(self):
         return u'Facebook user %s' % self.name
 
@@ -158,13 +172,13 @@ class FacebookLike(models.Model):
 
     class Meta:
         unique_together = ['user_id', 'facebook_id']
-        
+
 
 class FacebookProfile(FacebookProfileModel):
     '''
     Not abstract version of the facebook profile model
     Use this by setting
-    AUTH_PROFILE_MODULE = 'django_facebook.FacebookProfile' 
+    AUTH_PROFILE_MODULE = 'django_facebook.FacebookProfile'
     '''
     user = models.OneToOneField('auth.User')
 
@@ -194,12 +208,16 @@ class BaseModelMetaclass(ModelBase):
     def __new__(cls, name, bases, attrs):
         super_new = ModelBase.__new__(cls, name, bases, attrs)
         module_name = camel_to_underscore(name)
-        model_module = sys.modules[cls.__module__]
 
         app_label = super_new.__module__.split('.')[-2]
         db_table = '%s_%s' % (app_label, module_name)
+
+        django_default = '%s_%s' % (app_label, name.lower())
         if not getattr(super_new._meta, 'proxy', False):
-            super_new._meta.db_table = db_table
+            db_table_is_default = django_default == super_new._meta.db_table
+            #Don't overwrite when people customize the db_table
+            if db_table_is_default:
+                super_new._meta.db_table = db_table
 
         return super_new
 
@@ -244,7 +262,7 @@ class CreatedAtAbstractBase(BaseModel):
         '''
         if self.auto_clean:
             self.clean()
-        saved = models.Model.save(self, *args, **kwargs) 
+        saved = models.Model.save(self, *args, **kwargs)
         return saved
 
     def __unicode__(self):
@@ -268,9 +286,9 @@ class CreatedAtAbstractBase(BaseModel):
         abstract = True
 
 
-class OpenGraphShare(CreatedAtAbstractBase):
+class OpenGraphShare(BaseModel):
     '''
-    Object for tracking all shares to facebook
+    Object for tracking all shares to Facebook
     Used for statistics and evaluating how things are going
 
     I recommend running this in a task
@@ -288,7 +306,17 @@ class OpenGraphShare(CreatedAtAbstractBase):
         share.set_share_dict(kwargs)
         share.save()
         result = share.send()
+
+    Using this model has the advantage that it allows us to
+    - remove open graph shares (since we store the Facebook id)
+    - retry open graph shares, which is handy in case of
+      - updated access tokens (retry all shares from this user in the last
+        facebook_settings.FACEBOOK_OG_SHARE_RETRY_DAYS)
+      - Facebook outages (Facebook often has minor interruptions, retry in 15m,
+        for max facebook_settings.FACEBOOK_OG_SHARE_RETRIES)
     '''
+    objects = model_managers.OpenGraphShareManager()
+
     from django.contrib.auth.models import User
     user = models.ForeignKey(User)
 
@@ -303,17 +331,27 @@ class OpenGraphShare(CreatedAtAbstractBase):
     content_object = generic.GenericForeignKey('content_type', 'object_id')
 
     #completion data
-    completed_at = models.DateTimeField(blank=True, null=True)
     error_message = models.TextField(blank=True, null=True)
-    last_attempt = models.DateTimeField(blank=True, null=True, auto_now_add=True)
+    last_attempt = models.DateTimeField(
+        blank=True, null=True, auto_now_add=True)
+    retry_count = models.IntegerField(blank=True, null=True)
+    #only written if we actually succeed
     share_id = models.CharField(blank=True, null=True, max_length=255)
+    completed_at = models.DateTimeField(blank=True, null=True)
+
+    #updated at and created at, last one needs an index
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = facebook_settings.FACEBOOK_OG_SHARE_DB_TABLE
 
     def save(self, *args, **kwargs):
         if self.user and not self.facebook_user_id:
             self.facebook_user_id = self.user.get_profile().facebook_id
         return models.Model.save(self, *args, **kwargs)
 
-    def send(self):
+    def send(self, graph=None):
         result = None
         #update the last attempt
         self.last_attempt = datetime.datetime.now()
@@ -321,19 +359,20 @@ class OpenGraphShare(CreatedAtAbstractBase):
 
         #see if the graph is enabled
         profile = self.user.get_profile()
-        graph = profile.get_offline_graph()
+        graph = graph or profile.get_offline_graph()
         user_enabled = profile.facebook_open_graph and self.facebook_user_id
 
         #start sharing
         if graph and user_enabled:
-            graph_location = '%s/%s' % (self.facebook_user_id, self.action_domain)
+            graph_location = '%s/%s' % (
+                self.facebook_user_id, self.action_domain)
             share_dict = self.get_share_dict()
             from open_facebook.exceptions import OpenFacebookException
             try:
                 result = graph.set(graph_location, **share_dict)
                 share_id = result.get('id')
                 if not share_id:
-                    error_message = 'No id in facebook response, found %s for url %s with data %s' % (result, graph_location, share_dict)
+                    error_message = 'No id in Facebook response, found %s for url %s with data %s' % (result, graph_location, share_dict)
                     logger.error(error_message)
                     raise OpenFacebookException(error_message)
                 self.share_id = share_id
@@ -341,6 +380,8 @@ class OpenGraphShare(CreatedAtAbstractBase):
                 self.completed_at = datetime.datetime.now()
                 self.save()
             except OpenFacebookException, e:
+                logger.warn(
+                    'Open graph share failed, writing message %s' % e.message)
                 self.error_message = unicode(e)
                 self.save()
         elif not graph:
@@ -352,16 +393,29 @@ class OpenGraphShare(CreatedAtAbstractBase):
 
         return result
 
+    def retry(self, graph=None, reset_retries=False):
+        if self.completed_at:
+            raise ValueError('You can\'t retry completed shares')
+
+        if reset_retries:
+            self.retry_count = 0
+        #handle the case where self.retry_count = None
+        self.retry_count = self.retry_count + 1 if self.retry_count else 1
+
+        #actually retry now
+        result = self.send(graph=graph)
+        return result
+
     def set_share_dict(self, share_dict):
-        share_dict_string = json.encode(share_dict)
+        share_dict_string = json.dumps(share_dict)
         self.share_dict = share_dict_string
-    
+
     def get_share_dict(self):
         share_dict_string = self.share_dict
-        share_dict = json.decode(share_dict_string)
+        share_dict = json.loads(share_dict_string)
         return share_dict
-    
-    
+
+
 class FacebookInvite(CreatedAtAbstractBase):
     from django.contrib.auth.models import User
     user = models.ForeignKey(User)
@@ -373,18 +427,21 @@ class FacebookInvite(CreatedAtAbstractBase):
     wallpost_id = models.CharField(blank=True, null=True, max_length=255)
     error = models.BooleanField(default=False)
     error_message = models.TextField(blank=True, null=True)
-    last_attempt = models.DateTimeField(blank=True, null=True, auto_now_add=True)
-    
+    last_attempt = models.DateTimeField(
+        blank=True, null=True, auto_now_add=True)
+
     #reminder data
-    reminder_wallpost_id = models.CharField(blank=True, null=True, max_length=255)
+    reminder_wallpost_id = models.CharField(
+        blank=True, null=True, max_length=255)
     reminder_error = models.BooleanField(default=False)
     reminder_error_message = models.TextField(blank=True, null=True)
-    reminder_last_attempt = models.DateTimeField(blank=True, null=True, auto_now_add=True)
+    reminder_last_attempt = models.DateTimeField(
+        blank=True, null=True, auto_now_add=True)
 
     def __unicode__(self):
         message = 'user %s invited fb id %s' % (self.user, self.user_invited)
         return message
-    
+
     def resend(self, graph=None):
         from django_facebook.invite import post_on_profile
         if not graph:
@@ -392,10 +449,9 @@ class FacebookInvite(CreatedAtAbstractBase):
             if not graph:
                 return
         facebook_id = self.user_invited
-        invite_result = post_on_profile(self.user, graph, facebook_id, self.message, force_send=True)
+        invite_result = post_on_profile(
+            self.user, graph, facebook_id, self.message, force_send=True)
         return invite_result
-    
+
     class Meta:
         unique_together = ('user', 'user_invited')
-    
-

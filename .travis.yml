@@ -14,14 +14,16 @@ postgres:
   database: django_fb_test
 install:
   - pip install pep8 --use-mirrors
+  - pip install coverage
   - pip install https://github.com/dcramer/pyflakes/tarball/master
   - python setup.py install
   - pip install -r facebook_example/requirements/$REQUIREMENTS.txt --use-mirrors -I
   - pip install -q Django==$DJANGO --use-mirrors
-#before_script:
-#  - "pep8 --exclude=migrations --ignore=E501,E225 django_facebook"
+before_script:
+  - "pep8 --exclude=migrations --ignore=E501,E225 django_facebook open_facebook"
 #  - pyflakes -x W src
 script:
   - pip install -e .
   - cd facebook_example
-  - python manage.py test $TESTS --settings=$SETTINGS
+  - coverage run manage.py test $TESTS --settings=$SETTINGS
+  - coverage report
